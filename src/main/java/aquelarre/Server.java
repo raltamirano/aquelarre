@@ -138,12 +138,14 @@ public class Server<T> extends Node<T> {
                 while(clientSocket.isConnected()) {
                     final T message = reader().read(clientConnection.dataInputStream());
                     // TODO: decide to either broadcast or message nodes
-                    final boolean isBroadcast = true;
-                    if (isBroadcast) {
-                        notifyMessage(message);
-                        for(final ClientConnection c : clientConnectionsCopy())
-                            if (!c.equals(clientConnection))
-                                safeWriteMessage(message, c.dataOutputStream());
+                    if (message != null) {
+                        final boolean isBroadcast = true;
+                        if (isBroadcast) {
+                            notifyMessage(message);
+                            for (final ClientConnection c : clientConnectionsCopy())
+                                if (!c.equals(clientConnection))
+                                    safeWriteMessage(message, c.dataOutputStream());
+                        }
                     }
                 }
             } catch (final Throwable t) {

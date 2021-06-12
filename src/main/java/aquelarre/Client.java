@@ -68,7 +68,8 @@ public class Client<T> extends Node<T> {
             try {
                 while(connected && socket.isConnected()) {
                     final T message = reader().read(dataInputStream);
-                    notifyMessage(message);
+                    if (message != null)
+                        notifyMessage(message);
                 }
             } catch (final Throwable t) {
                 System.out.println("Error in client connection: " + t);
