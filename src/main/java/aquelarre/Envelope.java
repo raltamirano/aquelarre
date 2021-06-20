@@ -46,6 +46,10 @@ public class Envelope<T> {
         return header.to().equals(ALL);
     }
 
+    public boolean wasSentFromServer() {
+        return header.from().equals(SERVER);
+    }
+
     public boolean wasSentToServer() {
         return header.to().equals(SERVER);
     }
