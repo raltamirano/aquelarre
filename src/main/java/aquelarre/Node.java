@@ -54,7 +54,7 @@ public abstract class Node<T> {
         return messageWriter;
     }
 
-    protected void notifyMessage(final T message) {
+    protected void notifyMessage(final Envelope<T> message) {
         final MessageListener<T> theListener = messageListener;
         if (theListener != null) {
             try {
@@ -64,4 +64,6 @@ public abstract class Node<T> {
             }
         }
     }
+
+    public static final String ALL = "*";
 }

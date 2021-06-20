@@ -67,7 +67,7 @@ public class Client<T> extends Node<T> {
         final Thread thread = new Thread(() -> {
             try {
                 while(connected && socket.isConnected()) {
-                    final T message = reader().read(dataInputStream);
+                    final Envelope<T> message = reader().read(dataInputStream);
                     if (message != null)
                         notifyMessage(message);
                 }
@@ -104,6 +104,6 @@ public class Client<T> extends Node<T> {
 
     @Override
     public void broadcast(final T message) throws IOException {
-        writer().write(message, dataOutputStream);
+        writer().write(Envelope.of(Header.of(nodeId().toString(), ALL), message), dataOutputStream);
     }
 }

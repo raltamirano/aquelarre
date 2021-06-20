@@ -8,5 +8,5 @@ import java.io.IOException;
  * @param <T>
  */
 public interface MessageReader<T> {
-    T read(final DataInputStream dataInputStream) throws IOException;
+    Envelope<T> read(final DataInputStream dataInputStream) throws IOException;
 }

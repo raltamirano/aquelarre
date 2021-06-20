@@ -87,10 +87,10 @@ public class Server<T> extends Node<T> {
             throw new IllegalArgumentException("message");
 
         for(final ClientConnection clientConnection : clientConnectionsCopy())
-            safeWriteMessage(message, clientConnection.dataOutputStream());
+            safeWriteMessage(Envelope.of(Header.of(nodeId().toString(), ALL), message), clientConnection.dataOutputStream());
     }
 
-    private void safeWriteMessage(final T message, final DataOutputStream dataOutputStream) {
+    private void safeWriteMessage(final Envelope<T> message, final DataOutputStream dataOutputStream) {
         try {
             writer().write(message, dataOutputStream);
         } catch (final Throwable t) {
@@ -136,7 +136,7 @@ public class Server<T> extends Node<T> {
         clientHandlersPool.submit(() -> {
             try {
                 while(clientSocket.isConnected()) {
-                    final T message = reader().read(clientConnection.dataInputStream());
+                    final Envelope<T> message = reader().read(clientConnection.dataInputStream());
                     // TODO: decide to either broadcast or message nodes
                     if (message != null) {
                         final boolean isBroadcast = true;
