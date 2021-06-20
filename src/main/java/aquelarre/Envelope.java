@@ -38,6 +38,10 @@ public class Envelope<T> {
         return of(header.withFrom(newFrom), payload);
     }
 
+    public Envelope<T> withTo(final String newTo) {
+        return of(header.withTo(newTo), payload);
+    }
+
     public boolean isBroadcast() {
         return header.to().equals(ALL);
     }

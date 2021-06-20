@@ -29,7 +29,11 @@ public class Header {
         return to;
     }
 
-    public Header withFrom(String newFrom) {
+    public Header withFrom(final String newFrom) {
         return of(newFrom, this.to);
+    }
+
+    public Header withTo(final String newTo) {
+        return of(this.from, newTo);
     }
 }

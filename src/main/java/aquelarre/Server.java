@@ -29,29 +29,36 @@ public class Server<T> extends Node<T> {
     private AtomicInteger threadCount = new AtomicInteger();
     private final ExecutorService clientHandlersPool;
     private final int maxClients;
+    private final RoutingManager<T> routingManager;
 
     private Server(final int port, final int maxClients,
                    final MessageReader<T> messageReader,
-                   final MessageWriter<T> messageWriter) {
+                   final MessageWriter<T> messageWriter,
+                   final RoutingManager<T> routingManager) {
         super(messageReader, messageWriter);
 
         Utils.validatePortNumber(port);
+        if (routingManager == null)
+            throw new IllegalArgumentException("routingManager");
 
         this.port = port;
         this.maxClients = maxClients;
+        this.routingManager = routingManager;
         clientHandlersPool = configureClientHandlersPool();
     }
 
     public static <X> Server<X> of(final int port,
                                    final MessageReader<X> messageReader,
-                                   final MessageWriter<X> messageWriter) {
-        return of(port, DEFAULT_MAX_CLIENTS, messageReader, messageWriter);
+                                   final MessageWriter<X> messageWriter,
+                                   final RoutingManager<X> routingManager) {
+        return of(port, DEFAULT_MAX_CLIENTS, messageReader, messageWriter, routingManager);
     }
 
     public static <X> Server<X> of(final int port, final int maxClients,
                                    final MessageReader<X> messageReader,
-                                   final MessageWriter<X> messageWriter) {
-        return new Server<>(port, maxClients, messageReader, messageWriter);
+                                   final MessageWriter<X> messageWriter,
+                                   final RoutingManager<X> routingManager) {
+        return new Server<>(port, maxClients, messageReader, messageWriter, routingManager);
     }
 
     public boolean isRunning() {
@@ -78,6 +85,10 @@ public class Server<T> extends Node<T> {
         clientConnections.keySet().forEach(Utils::safeCloseClientConnection);
     }
 
+    public RoutingManager<T> getRoutingManager() {
+        return routingManager;
+    }
+
     private void stopAcceptorThread() {
         try {
             clientAcceptorThread.interrupt();
@@ -91,9 +102,14 @@ public class Server<T> extends Node<T> {
         if (message == null)
             throw new IllegalArgumentException("message");
 
-        final ClientConnection target = getClientConnectionByNodeIdOrLogin(to);
-        if (target != null)
-            writeMessage(Envelope.of(Header.of(SERVER, to), message), target);
+        final Envelope<T> envelope = Envelope.of(Header.of(SERVER, to), message);
+        if (routingManager.isValidRoute(envelope)) {
+            final ClientConnection target = getClientConnectionByNodeIdOrLogin(to);
+            if (target != null)
+                writeMessage(envelope, target);
+        } else {
+            System.out.println("Invalid routing for message: " + envelope);
+        }
     }
 
     @Override
@@ -101,8 +117,13 @@ public class Server<T> extends Node<T> {
         if (message == null)
             throw new IllegalArgumentException("message");
 
-        for(final ClientConnection clientConnection : clientConnectionsCopy().values())
-            safeWriteMessage(Envelope.of(Header.of(SERVER, ALL), message), clientConnection);
+        for(final ClientConnection clientConnection : clientConnectionsCopy().values()) {
+            final Envelope<T> envelope = Envelope.of(Header.of(SERVER, actualIdentification(clientConnection)), message);
+            if (routingManager.isValidRoute(envelope))
+                safeWriteMessage(envelope, clientConnection);
+            else
+                System.out.println("Invalid routing for message: " + envelope);
+        }
     }
 
     private void safeWriteMessage(final Envelope<T> message, final ClientConnection clientConnection) {
@@ -162,19 +183,39 @@ public class Server<T> extends Node<T> {
                 while(clientSocket.isConnected()) {
                     final Envelope<T> message = reader().read(clientConnection.dataInputStream());
                     if (message != null) {
-                        final Envelope<T> rewrittenFrom = message.withFrom(actualFrom(clientConnection));
+                        final Envelope<T> rewrittenFrom = message.withFrom(actualIdentification(clientConnection));
                         if (rewrittenFrom.isBroadcast()) {
-                            notifyMessage(rewrittenFrom);
-                            for (final ClientConnection c : clientConnectionsCopy().values())
-                                if (!c.equals(clientConnection))
-                                    safeWriteMessage(rewrittenFrom, c);
-                        } else {
-                            if (message.wasSentToServer()) {
-                                notifyMessage(rewrittenFrom);
+                            final Envelope<T> toServer = rewrittenFrom.withTo(SERVER);
+                            if (routingManager.isValidRoute(toServer)) {
+                                notifyMessage(toServer);
                             } else {
-                                final ClientConnection target = getClientConnectionByNodeIdOrLogin(rewrittenFrom.header().to());
-                                if (target != null)
-                                    safeWriteMessage(rewrittenFrom, target);
+                                System.out.println("Invalid routing for message: " + toServer);
+                            }
+
+                            for (final ClientConnection c : clientConnectionsCopy().values())
+                                if (!c.equals(clientConnection)) {
+                                    final Envelope<T> rewrittenTo = rewrittenFrom.withTo(actualIdentification(c));
+                                    if (routingManager.isValidRoute(rewrittenTo)) {
+                                        safeWriteMessage(rewrittenTo, c);
+                                    } else {
+                                        System.out.println("Invalid routing for message: " + rewrittenTo);
+                                    }
+                                }
+                        } else {
+                            if (rewrittenFrom.wasSentToServer()) {
+                                if (routingManager.isValidRoute(rewrittenFrom)) {
+                                    notifyMessage(rewrittenFrom);
+                                } else {
+                                    System.out.println("Invalid routing for message: " + rewrittenFrom);
+                                }
+                            } else {
+                                if (routingManager.isValidRoute(rewrittenFrom)) {
+                                    final ClientConnection target = getClientConnectionByNodeIdOrLogin(rewrittenFrom.header().to());
+                                    if (target != null)
+                                        safeWriteMessage(rewrittenFrom, target);
+                                } else {
+                                    System.out.println("Invalid routing for message: " + rewrittenFrom);
+                                }
                             }
                         }
                     }
@@ -188,7 +229,7 @@ public class Server<T> extends Node<T> {
         registerClientConnection(clientConnection);
     }
 
-    private String actualFrom(final ClientConnection clientConnection) {
+    private String actualIdentification(final ClientConnection clientConnection) {
         if (authenticatedMode)
             throw new RuntimeException("Authenticated server mode not implemented yet!");
         else
