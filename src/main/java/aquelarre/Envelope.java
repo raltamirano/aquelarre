@@ -53,4 +53,9 @@ public class Envelope<T> {
     public boolean wasSentToServer() {
         return header.to().equals(SERVER);
     }
+
+    @Override
+    public String toString() {
+        return String.format("[%s->%s] %s", header.from(), header.to(), payload.toString());
+    }
 }
