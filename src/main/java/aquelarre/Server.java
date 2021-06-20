@@ -21,6 +21,7 @@ import static aquelarre.Utils.safeCloseClientConnection;
 public class Server<T> extends Node<T> {
     private final int port;
     private final boolean authenticatedMode = false;
+    private boolean includeSenderInBroadcasts;
     private boolean running;
     private ServerSocket serverSocket;
     private Thread clientAcceptorThread;
@@ -32,6 +33,7 @@ public class Server<T> extends Node<T> {
     private final RoutingManager<T> routingManager;
 
     private Server(final int port, final int maxClients,
+                   final boolean includeSenderInBroadcasts,
                    final MessageReader<T> messageReader,
                    final MessageWriter<T> messageWriter,
                    final RoutingManager<T> routingManager) {
@@ -43,6 +45,7 @@ public class Server<T> extends Node<T> {
 
         this.port = port;
         this.maxClients = maxClients;
+        this.includeSenderInBroadcasts = includeSenderInBroadcasts;
         this.routingManager = routingManager;
         clientHandlersPool = configureClientHandlersPool();
     }
@@ -51,14 +54,15 @@ public class Server<T> extends Node<T> {
                                    final MessageReader<X> messageReader,
                                    final MessageWriter<X> messageWriter,
                                    final RoutingManager<X> routingManager) {
-        return of(port, DEFAULT_MAX_CLIENTS, messageReader, messageWriter, routingManager);
+        return of(port, DEFAULT_MAX_CLIENTS, true, messageReader, messageWriter, routingManager);
     }
 
     public static <X> Server<X> of(final int port, final int maxClients,
+                                   final boolean includeSenderInBroadcasts,
                                    final MessageReader<X> messageReader,
                                    final MessageWriter<X> messageWriter,
                                    final RoutingManager<X> routingManager) {
-        return new Server<>(port, maxClients, messageReader, messageWriter, routingManager);
+        return new Server<>(port, maxClients, includeSenderInBroadcasts, messageReader, messageWriter, routingManager);
     }
 
     public boolean isRunning() {
@@ -87,6 +91,14 @@ public class Server<T> extends Node<T> {
 
     public RoutingManager<T> getRoutingManager() {
         return routingManager;
+    }
+
+    public boolean includeSenderInBroadcasts() {
+        return includeSenderInBroadcasts;
+    }
+
+    public void setIncludeSenderInBroadcasts(final boolean includeSenderInBroadcasts) {
+        this.includeSenderInBroadcasts = includeSenderInBroadcasts;
     }
 
     private void stopAcceptorThread() {
@@ -192,8 +204,8 @@ public class Server<T> extends Node<T> {
                                 System.out.println("Invalid routing for message: " + toServer);
                             }
 
-                            for (final ClientConnection c : clientConnectionsCopy().values())
-                                if (!c.equals(clientConnection)) {
+                            for (final ClientConnection c : clientConnectionsCopy().values()) {
+                                if (includeSenderInBroadcasts || !c.equals(clientConnection)) {
                                     final Envelope<T> rewrittenTo = rewrittenFrom.withTo(actualIdentification(c));
                                     if (routingManager.isValidRoute(rewrittenTo)) {
                                         safeWriteMessage(rewrittenTo, c);
@@ -201,6 +213,7 @@ public class Server<T> extends Node<T> {
                                         System.out.println("Invalid routing for message: " + rewrittenTo);
                                     }
                                 }
+                            }
                         } else {
                             if (rewrittenFrom.wasSentToServer()) {
                                 if (routingManager.isValidRoute(rewrittenFrom)) {
