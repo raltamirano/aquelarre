@@ -5,9 +5,10 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -19,10 +20,12 @@ import static aquelarre.Utils.safeCloseClientConnection;
  */
 public class Server<T> extends Node<T> {
     private final int port;
+    private final boolean authenticatedMode = false;
     private boolean running;
     private ServerSocket serverSocket;
     private Thread clientAcceptorThread;
-    private final Set<ClientConnection> clientConnections = new HashSet<>();
+    private final Map<Socket, ClientConnection> clientConnections = new HashMap<>();
+    private final Map<UUID, ClientConnection> clientConnectionsById = new HashMap<>();
     private AtomicInteger threadCount = new AtomicInteger();
     private final ExecutorService clientHandlersPool;
     private final int maxClients;
@@ -72,7 +75,7 @@ public class Server<T> extends Node<T> {
         running = false;
         stopAcceptorThread();
         clientHandlersPool.shutdownNow();
-        clientConnections.stream().map(ClientConnection::socket).forEach(Utils::safeCloseClientConnection);
+        clientConnections.keySet().forEach(Utils::safeCloseClientConnection);
     }
 
     private void stopAcceptorThread() {
@@ -82,32 +85,54 @@ public class Server<T> extends Node<T> {
     }
 
     @Override
+    public void send(final String to, final T message) throws IOException {
+        if (to == null)
+            throw new IllegalArgumentException("to");
+        if (message == null)
+            throw new IllegalArgumentException("message");
+
+        final ClientConnection target = getClientConnectionByNodeIdOrLogin(to);
+        if (target != null)
+            writeMessage(Envelope.of(Header.of(SERVER, to), message), target);
+    }
+
+    @Override
     public void broadcast(final T message) {
         if (message == null)
             throw new IllegalArgumentException("message");
 
-        for(final ClientConnection clientConnection : clientConnectionsCopy())
-            safeWriteMessage(Envelope.of(Header.of(nodeId().toString(), ALL), message), clientConnection.dataOutputStream());
+        for(final ClientConnection clientConnection : clientConnectionsCopy().values())
+            safeWriteMessage(Envelope.of(Header.of(SERVER, ALL), message), clientConnection);
     }
 
-    private void safeWriteMessage(final Envelope<T> message, final DataOutputStream dataOutputStream) {
+    private void safeWriteMessage(final Envelope<T> message, final ClientConnection clientConnection) {
         try {
-            writer().write(message, dataOutputStream);
+            writeMessage(message, clientConnection);
         } catch (final Throwable t) {
             System.out.println("Error sending message to client: " + t);
         }
     }
 
-    private Set<ClientConnection> clientConnectionsCopy() {
+    private void writeMessage(final Envelope<T> message, final ClientConnection clientConnection) throws IOException {
+        writer().write(message, clientConnection.dataOutputStream());
+    }
+
+    private Map<Socket, ClientConnection> clientConnectionsCopy() {
         synchronized(clientConnections) {
-            return new HashSet<>(clientConnections);
+            return new HashMap<>(clientConnections);
+        }
+    }
+
+    private Map<UUID, ClientConnection> clientConnectionsByIdCopy() {
+        synchronized(clientConnectionsById) {
+            return new HashMap<>(clientConnectionsById);
         }
     }
 
     private ExecutorService configureClientHandlersPool() {
         return Executors.newFixedThreadPool(maxClients, r -> {
-            final Thread newThread = new Thread(r, String.format("[%s] Client Processor Thread #%d",
-                    nodeId().toString(), threadCount.getAndIncrement()));
+            final Thread newThread = new Thread(r, String.format("Client Processor Thread #%d",
+                    threadCount.getAndIncrement()));
             newThread.setDaemon(true);
             return newThread;
         });
@@ -126,48 +151,87 @@ public class Server<T> extends Node<T> {
             }
         });
         clientAcceptorThread.setDaemon(true);
-        clientAcceptorThread.setName(String.format("[%s] Client Acceptor Thread",
-                nodeId().toString()));
+        clientAcceptorThread.setName("Client Acceptor Thread");
         clientAcceptorThread.start();
     }
 
     private void startClientHandler(final Socket clientSocket) throws IOException {
-        final ClientConnection clientConnection = new ClientConnection(clientSocket);
+        final ClientConnection clientConnection = new ClientConnection(UUID.randomUUID(), clientSocket);
         clientHandlersPool.submit(() -> {
             try {
                 while(clientSocket.isConnected()) {
                     final Envelope<T> message = reader().read(clientConnection.dataInputStream());
-                    // TODO: decide to either broadcast or message nodes
                     if (message != null) {
-                        final boolean isBroadcast = true;
-                        if (isBroadcast) {
-                            notifyMessage(message);
-                            for (final ClientConnection c : clientConnectionsCopy())
+                        final Envelope<T> rewrittenFrom = message.withFrom(actualFrom(clientConnection));
+                        if (rewrittenFrom.isBroadcast()) {
+                            notifyMessage(rewrittenFrom);
+                            for (final ClientConnection c : clientConnectionsCopy().values())
                                 if (!c.equals(clientConnection))
-                                    safeWriteMessage(message, c.dataOutputStream());
+                                    safeWriteMessage(rewrittenFrom, c);
+                        } else {
+                            final ClientConnection target = getClientConnectionByNodeIdOrLogin(rewrittenFrom.header().to());
+                            if (target != null)
+                                safeWriteMessage(rewrittenFrom, target);
                         }
                     }
                 }
             } catch (final Throwable t) {
                 System.out.println("Error in client connection: " + t);
                 safeCloseClientConnection(clientSocket);
-                clientConnections.remove(clientConnection);
+                unregisterClientConnection(clientConnection);
             }
         });
-        clientConnections.add(clientConnection);
+        registerClientConnection(clientConnection);
+    }
+
+    private String actualFrom(final ClientConnection clientConnection) {
+        if (authenticatedMode)
+            throw new RuntimeException("Authenticated server mode not implemented yet!");
+        else
+            return clientConnection.id().toString();
+    }
+
+    private ClientConnection getClientConnectionByNodeIdOrLogin(final String nodeIdOrLogin) {
+        try {
+            try {
+                final UUID targetNodeId = UUID.fromString(nodeIdOrLogin);
+                return clientConnectionsByIdCopy().get(targetNodeId);
+            } catch (final Throwable ignore) {
+                throw new RuntimeException("Authenticated server mode not implemented yet!");
+            }
+        } catch (final Throwable t) {
+            System.out.println("Error identifying client connection: " + t);
+            return null;
+        }
+    }
+
+    private void unregisterClientConnection(final ClientConnection clientConnection) {
+        clientConnections.remove(clientConnection);
+        clientConnectionsById.remove(clientConnection.id());
+    }
+
+    private void registerClientConnection(final ClientConnection clientConnection) {
+        clientConnections.put(clientConnection.socket(), clientConnection);
+        clientConnectionsById.put(clientConnection.id(), clientConnection);
     }
 
     private static final int DEFAULT_MAX_CLIENTS = 100;
 
     private static class ClientConnection {
+        private final UUID id;
         private final Socket socket;
         private final DataInputStream dataInputStream;
         private final DataOutputStream dataOutputStream;
 
-        public ClientConnection(final Socket socket) throws IOException {
+        public ClientConnection(final UUID id, final Socket socket) throws IOException {
+            this.id = id;
             this.socket = socket;
             this.dataInputStream = new DataInputStream(socket.getInputStream());
             this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
+        }
+
+        public UUID id() {
+            return id;
         }
 
         public Socket socket() {

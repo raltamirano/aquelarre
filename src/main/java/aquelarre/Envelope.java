@@ -1,5 +1,7 @@
 package aquelarre;
 
+import static aquelarre.Node.ALL;
+
 /**
  * Message envelope
  *
@@ -29,5 +31,13 @@ public class Envelope<T> {
 
     public T payload() {
         return payload;
+    }
+
+    public Envelope<T> withFrom(final String newFrom) {
+        return of(header.withFrom(newFrom), payload);
+    }
+
+    public boolean isBroadcast() {
+        return header.to().equals(ALL);
     }
 }

@@ -4,6 +4,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static aquelarre.Utils.safeCloseClientConnection;
@@ -103,7 +104,21 @@ public class Client<T> extends Node<T> {
     }
 
     @Override
+    public void send(final String to, final T message) throws IOException {
+        writeMessageWithTo(to, message);
+    }
+
+    @Override
     public void broadcast(final T message) throws IOException {
-        writer().write(Envelope.of(Header.of(nodeId().toString(), ALL), message), dataOutputStream);
+        writeMessageWithTo(ALL, message);
+    }
+
+    private void writeMessageWithTo(final String to, final T message) throws IOException {
+        if (to == null)
+            throw new IllegalArgumentException("to");
+        if (message == null)
+            throw new IllegalArgumentException("message");
+
+        writer().write(Envelope.of(Header.of(ME, to), message), dataOutputStream);
     }
 }

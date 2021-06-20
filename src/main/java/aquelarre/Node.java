@@ -7,7 +7,6 @@ import java.util.UUID;
  * Participant in a multi-client communication (includes both server and clients)
  */
 public abstract class Node<T> {
-    private final UUID id = UUID.randomUUID();
     private final MessageReader<T> messageReader;
     private final MessageWriter<T> messageWriter;
     private MessageListener<T> messageListener;
@@ -20,10 +19,6 @@ public abstract class Node<T> {
 
         this.messageReader = messageReader;
         this.messageWriter = messageWriter;
-    }
-
-    public UUID nodeId() {
-        return id;
     }
 
     public MessageListener<T> getMessageListener() {
@@ -40,11 +35,9 @@ public abstract class Node<T> {
     public abstract void broadcast(final T message) throws IOException;
 
     /**
-     * Send a message to a specific node.
+     * Send a message to a specific node/client.
      */
-    public void send(final UUID nodeID, final T message) throws IOException {
-        throw new RuntimeException("Not implemented!");
-    }
+    public abstract void send(final String to, final T message) throws IOException;
 
     protected MessageReader<T> reader() {
         return messageReader;
@@ -66,4 +59,6 @@ public abstract class Node<T> {
     }
 
     public static final String ALL = "*";
+    public static final String SERVER = "s";
+    public static final String ME = "m";
 }

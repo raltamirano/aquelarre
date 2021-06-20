@@ -28,4 +28,8 @@ public class Header {
     public String to() {
         return to;
     }
+
+    public Header withFrom(String newFrom) {
+        return of(newFrom, this.to);
+    }
 }
