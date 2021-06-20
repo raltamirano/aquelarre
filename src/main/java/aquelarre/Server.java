@@ -169,9 +169,13 @@ public class Server<T> extends Node<T> {
                                 if (!c.equals(clientConnection))
                                     safeWriteMessage(rewrittenFrom, c);
                         } else {
-                            final ClientConnection target = getClientConnectionByNodeIdOrLogin(rewrittenFrom.header().to());
-                            if (target != null)
-                                safeWriteMessage(rewrittenFrom, target);
+                            if (message.wasSentToServer()) {
+                                notifyMessage(rewrittenFrom);
+                            } else {
+                                final ClientConnection target = getClientConnectionByNodeIdOrLogin(rewrittenFrom.header().to());
+                                if (target != null)
+                                    safeWriteMessage(rewrittenFrom, target);
+                            }
                         }
                     }
                 }

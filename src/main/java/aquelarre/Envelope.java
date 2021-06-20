@@ -1,6 +1,7 @@
 package aquelarre;
 
 import static aquelarre.Node.ALL;
+import static aquelarre.Node.SERVER;
 
 /**
  * Message envelope
@@ -39,5 +40,9 @@ public class Envelope<T> {
 
     public boolean isBroadcast() {
         return header.to().equals(ALL);
+    }
+
+    public boolean wasSentToServer() {
+        return header.to().equals(SERVER);
     }
 }
